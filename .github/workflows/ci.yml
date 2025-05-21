@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Load environment variables
+        run: |
+          cp .env.example .env
+
+      # - name: Run tests
+      #   run: npm test
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Extract branch name
+        id: extract_branch
+        run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+
+      - name: Set Env name
+        run: |
+          if [[ "${BRANCH_NAME}" == "staging" ]]; then
+            echo "ENV_NAME=staging" >> $GITHUB_ENV
+          elif [[ "${BRANCH_NAME}" == "main" ]]; then
+            echo "ENV_NAME=production" >> $GITHUB_ENV
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # - name: Login to Amazon ECR
+      #   id: login-ecr
+      #   uses: aws-actions/amazon-ecr-login@v1
+
+      # - name: Build and Push image
+      #   if: github.event_name == 'push' && (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'staging')
+      #   uses: docker/build-push-action@v3
+      #   with:
+      #     context: .
+      #     push: true
+      #     load: false
+      #     tags: ${{ steps.login-ecr.outputs.registry }}/codeait-testapp:${{ env.ENV_NAME }}
+
+      # - name: Force ECS deployment
+      #   run: |
+      #     aws ecs update-service --cluster codeait-testapp --service codeait-testapp--service-${{ env.ENV_NAME }} --force-new-deployment
